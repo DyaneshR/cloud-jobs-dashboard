@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloud Jobs Dashboard (Flask + SocketIO)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cloud-jobs-dashboard
+Environment="PATH=/home/ubuntu/cloud-jobs-dashboard/venv/bin"
+ExecStart=/home/ubuntu/cloud-jobs-dashboard/venv/bin/gunicorn -k eventlet -w 1 --bind 127.0.0.1:5000 app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cloud/DevOps Job Requirements Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0; padding: 24px; background: #0f1117; color: #e6e6e6;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #9aa0aa; margin-bottom: 24px; font-size: 14px; }
+  .controls {
+    display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+  }
+  select, input {
+    background: #1a1d27; color: #e6e6e6; border: 1px solid #333846;
+    padding: 8px 12px; border-radius: 6px; font-size: 14px;
+  }
+  .stat-bar {
+    display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .stat-card {
+    background: #1a1d27; border: 1px solid #262a36; border-radius: 8px;
+    padding: 14px 18px; min-width: 140px;
+  }
+  .stat-card .label { font-size: 12px; color: #9aa0aa; }
+  .stat-card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+  .grid {
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: #1a1d27; border: 1px solid #262a36; border-radius: 10px;
+    padding: 18px;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 14px 0; color: #cdd2dc; }
+  .job-item {
+    padding: 10px 0; border-bottom: 1px solid #262a36; font-size: 13px;
+  }
+  .job-item .title { font-weight: 600; }
+  .job-item .meta { color: #9aa0aa; font-size: 12px; margin: 2px 0 6px; }
+  .job-item .desc { color: #b8bcc6; }
+  #jobList { max-height: 480px; overflow-y: auto; }
+  .empty { color: #9aa0aa; font-size: 13px; padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>Cloud / DevOps Job Requirements Dashboard <span id="liveDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc71;margin-left:6px;"></span></h1>
+<div class="subtitle">Aggregated skill frequency across live job postings, filterable by role and company. <span id="lastUpdated" style="color:#6c8cff;"></span></div>
+
+<div class="controls">
+  <select id="roleFilter">
+    <option value="">All roles</option>
+    <option value="cloud engineer">Cloud Engineer</option>
+    <option value="cloud support">Cloud Support Engineer</option>
+    <option value="devops">DevOps Engineer</option>
+  </select>
+  <select id="companyFilter">
+    <option value="">All companies</option>
+  </select>
+</div>
+
+<div class="stat-bar" id="statBar"></div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Top Skills Requested</h2>
+    <canvas id="skillChart" height="320"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Matching Postings</h2>
+    <div id="jobList"></div>
+  </div>
+</div>
+
+<script>
+let chart;
+
+async function loadCompanies() {
+  const res = await fetch('/api/companies');
+  const companies = await res.json();
+  const sel = document.getElementById('companyFilter');
+  companies.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+}
+
+async function refresh() {
+  const role = document.getElementById('roleFilter').value;
+  const company = document.getElementById('companyFilter').value;
+  const params = new URLSearchParams({ role, company });
+
+  const [skillsRes, jobsRes] = await Promise.all([
+    fetch('/api/skills?' + params),
+    fetch('/api/jobs?' + params),
+  ]);
+  const skills = await skillsRes.json();
+  const jobs = await jobsRes.json();
+
+  renderStats(skills);
+  renderChart(skills);
+  renderJobs(jobs);
+}
+
+function renderStats(skills) {
+  const bar = document.getElementById('statBar');
+  const topSkill = skills.skill_counts[0];
+  const topExp = skills.experience_years[0];
+  bar.innerHTML = `
+    <div class="stat-card"><div class="label">Postings analyzed</div><div class="value">${skills.total_jobs}</div></div>
+    <div class="stat-card"><div class="label">Most requested skill</div><div class="value">${topSkill ? topSkill[0] : '—'}</div></div>
+    <div class="stat-card"><div class="label">Most common experience ask</div><div class="value">${topExp ? topExp[0] + ' yrs' : '—'}</div></div>
+  `;
+}
+
+function renderChart(skills) {
+  const top = skills.skill_counts.slice(0, 12);
+  const labels = top.map(s => s[0]);
+  const data = top.map(s => s[1]);
+
+  const ctx = document.getElementById('skillChart').getContext('2d');
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '# of postings mentioning',
+        data,
+        backgroundColor: '#6c8cff',
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9aa0aa' }, grid: { color: '#262a36' } },
+        y: { ticks: { color: '#e6e6e6' }, grid: { display: false } },
+      }
+    }
+  });
+}
+
+function renderJobs(jobs) {
+  const list = document.getElementById('jobList');
+  if (!jobs.length) {
+    list.innerHTML = '<div class="empty">No postings match this filter. Run fetch_jobs.py to pull more data.</div>';
+    return;
+  }
+  list.innerHTML = jobs.map(j => `
+    <div class="job-item">
+      <div class="title">${j.title}</div>
+      <div class="meta">${j.company} · ${j.location || ''} · via ${j.source}</div>
+      <div class="desc">${j.description}...</div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('roleFilter').addEventListener('change', refresh);
+document.getElementById('companyFilter').addEventListener('change', refresh);
+
+loadCompanies().then(refresh);
+
+// --- Realtime: listen for server-pushed updates over WebSocket ---
+const socket = io();
+const dot = document.getElementById('liveDot');
+const lastUpdated = document.getElementById('lastUpdated');
+
+socket.on('connect', () => {
+  dot.style.background = '#2ecc71'; // green = live
+});
+socket.on('disconnect', () => {
+  dot.style.background = '#e74c3c'; // red = disconnected
+});
+socket.on('jobs_updated', () => {
+  lastUpdated.textContent = '· updated ' + new Date().toLocaleTimeString();
+  loadCompanies();
+  refresh();
+});
+</script>
+
+</body>
+</html>
