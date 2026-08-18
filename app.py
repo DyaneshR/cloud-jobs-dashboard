@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 REFRESH_INTERVAL_HOURS = 6
 
@@ -65,6 +65,18 @@ def api_jobs():
 @socketio.on("connect")
 def handle_connect():
     log.info("Client connected")
+
+
+@app.route("/api/trigger-refresh")
+def api_trigger_refresh():
+    """
+    Manual trigger for testing: runs the same fetch+notify function the
+    scheduler calls automatically every 6 hours, but runs it inside THIS
+    already-running server process (not a separate one-off script) so it
+    actually has access to the real connected WebSocket clients.
+    """
+    scheduled_fetch_job()
+    return jsonify({"status": "triggered"})
 
 
 def scheduled_fetch_job():
